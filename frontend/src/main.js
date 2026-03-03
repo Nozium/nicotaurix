@@ -1,173 +1,153 @@
-import { DanmakuEngine } from "./danmaku-engine.js";
 import { DanmakuWsClient } from "./ws-client.js";
 
-// --- Detect environment ---
 const isTauri = "__TAURI__" in window;
-const isPWA =
-  window.matchMedia("(display-mode: standalone)").matches ||
-  window.navigator.standalone;
 
-// --- Canvas setup ---
-const canvas = document.getElementById("danmaku-canvas");
-const danmakuArea = document.getElementById("danmaku-area");
-
-function resizeCanvas() {
-  canvas.width = danmakuArea.clientWidth;
-  canvas.height = danmakuArea.clientHeight;
+// ── Tauri invoke helper ──
+async function invoke(cmd, args = {}) {
+  if (!isTauri) return;
+  return window.__TAURI__.core.invoke(cmd, args);
 }
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
 
-// --- Danmaku engine ---
-const engine = new DanmakuEngine(canvas);
-engine.start();
+// ── URL bar ──
+const urlBar = document.getElementById("url-bar");
 
-// --- WebSocket connection ---
-function getWsUrl() {
-  if (isTauri) {
-    return "ws://localhost:1422/ws";
+urlBar.addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  const url = urlBar.value.trim();
+  if (!url) return;
+  try {
+    await invoke("navigate", { url });
+  } catch (err) {
+    console.error("Navigation failed:", err);
   }
-  // PWA mode: connect to the host that served this page
-  const host = window.location.hostname;
-  return `ws://${host}:1422/ws`;
-}
-
-const statusEl = document.getElementById("connection-status");
-
-const wsClient = new DanmakuWsClient(getWsUrl(), {
-  onDanmaku: (msg) => {
-    engine.addDanmaku(msg);
-  },
-  onControl: (action) => {
-    switch (action.action) {
-      case "set_speed":
-        engine.setSpeed(action.value);
-        speedSlider.value = action.value;
-        speedValue.textContent = action.value;
-        break;
-      case "set_color":
-        engine.setColor(action.value);
-        colorPicker.value = action.value;
-        break;
-      case "toggle":
-        engine.setEnabled(action.enabled);
-        updateToggleBtn(action.enabled);
-        break;
-    }
-  },
-  onOpen: () => {
-    statusEl.className = "status connected";
-    statusEl.textContent = "Connected";
-  },
-  onClose: () => {
-    statusEl.className = "status disconnected";
-    statusEl.textContent = "Disconnected";
-  },
-  onError: () => {
-    statusEl.className = "status disconnected";
-    statusEl.textContent = "Error";
-  },
 });
 
-wsClient.connect();
+urlBar.addEventListener("focus", () => urlBar.select());
 
-// --- Controls ---
+// ── Nav buttons (back / forward / reload) ──
+document.getElementById("btn-back").addEventListener("click", () => {
+  invoke("browser_back");
+});
+document.getElementById("btn-forward").addEventListener("click", () => {
+  invoke("browser_forward");
+});
+document.getElementById("btn-reload").addEventListener("click", () => {
+  invoke("browser_reload");
+});
+
+// ── Danmaku pill toggle ──
+const danmakuPill = document.getElementById("danmaku-pill");
+const danmakuLabel = document.getElementById("danmaku-label");
+let danmakuEnabled = true;
+
+danmakuPill.addEventListener("click", () => {
+  danmakuEnabled = !danmakuEnabled;
+  updateDanmakuPill();
+  wsClient.sendControl({ action: "toggle", enabled: danmakuEnabled });
+});
+
+function updateDanmakuPill() {
+  danmakuPill.classList.toggle("off", !danmakuEnabled);
+  danmakuLabel.textContent = danmakuEnabled ? "弾幕" : "OFF";
+}
+
+// ── Settings panel ──
+const settingsOverlay = document.getElementById("settings-overlay");
+const btnSettings = document.getElementById("btn-settings");
+
+btnSettings.addEventListener("click", (e) => {
+  e.stopPropagation();
+  settingsOverlay.classList.toggle("show");
+});
+
+settingsOverlay.addEventListener("click", (e) => {
+  if (e.target === settingsOverlay) {
+    settingsOverlay.classList.remove("show");
+  }
+});
+
+// Speed slider
 const speedSlider = document.getElementById("speed-slider");
 const speedValue = document.getElementById("speed-value");
+speedSlider.addEventListener("input", () => {
+  speedValue.textContent = speedSlider.value;
+  wsClient.sendControl({ action: "set_speed", value: parseInt(speedSlider.value) });
+});
+
+// Font size slider
+const fontsizeSlider = document.getElementById("fontsize-slider");
+const fontsizeValue = document.getElementById("fontsize-value");
+fontsizeSlider.addEventListener("input", () => {
+  fontsizeValue.textContent = fontsizeSlider.value;
+  wsClient.sendControl({ action: "set_font_size", value: parseInt(fontsizeSlider.value) });
+});
+
+// Color picker
 const colorPicker = document.getElementById("color-picker");
-const toggleBtn = document.getElementById("toggle-btn");
-
-speedSlider.addEventListener("input", (e) => {
-  const val = parseInt(e.target.value);
-  speedValue.textContent = val;
-  engine.setSpeed(val);
-  wsClient.sendControl({ action: "set_speed", value: val });
+colorPicker.addEventListener("input", () => {
+  wsClient.sendControl({ action: "set_color", value: colorPicker.value });
 });
 
-colorPicker.addEventListener("input", (e) => {
-  engine.setColor(e.target.value);
-  wsClient.sendControl({ action: "set_color", value: e.target.value });
+// Inject button
+document.getElementById("btn-inject").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-inject");
+  try {
+    await invoke("inject_danmaku_script");
+    btn.textContent = "注入完了!";
+    setTimeout(() => { btn.textContent = "弾幕スクリプトを再注入"; }, 1200);
+  } catch (err) {
+    console.error("Inject failed:", err);
+  }
+  settingsOverlay.classList.remove("show");
 });
 
-function updateToggleBtn(enabled) {
-  toggleBtn.textContent = enabled ? "ON" : "OFF";
-  toggleBtn.classList.toggle("active", enabled);
-}
-
-toggleBtn.addEventListener("click", () => {
-  const newState = !engine.enabled;
-  engine.setEnabled(newState);
-  updateToggleBtn(newState);
-  wsClient.sendControl({ action: "toggle", enabled: newState });
-});
-
-// --- QR Code modal ---
-const qrBtn = document.getElementById("qr-btn");
+// ── QR modal ──
 const qrModal = document.getElementById("qr-modal");
-const qrClose = document.getElementById("qr-close");
-const qrSvg = document.getElementById("qr-svg");
-const qrUrl = document.getElementById("qr-url");
 
-qrBtn.addEventListener("click", async () => {
-  if (isTauri) {
-    try {
-      const { invoke } = await import("@anthropic-ai/sdk");
-      const svg = await window.__TAURI__.core.invoke("get_local_qr", {
-        port: 1420,
-      });
-      const ip = await window.__TAURI__.core.invoke("get_local_ip");
-      qrSvg.innerHTML = svg;
-      qrUrl.textContent = `http://${ip}:1420`;
-    } catch (e) {
-      qrSvg.innerHTML = "<p>QR generation failed</p>";
-      qrUrl.textContent = "";
-    }
-  } else {
-    qrSvg.innerHTML = "<p>QR is only available on the desktop app</p>";
-    qrUrl.textContent = window.location.origin;
+document.getElementById("btn-qr").addEventListener("click", async () => {
+  settingsOverlay.classList.remove("show");
+  try {
+    const svg = await invoke("get_local_qr", { port: 1420 });
+    const ip = await invoke("get_local_ip");
+    document.getElementById("qr-svg").innerHTML = svg;
+    document.getElementById("qr-url").textContent = `http://${ip}:1420`;
+  } catch {
+    document.getElementById("qr-svg").innerHTML = "<p>QR生成失敗</p>";
+    document.getElementById("qr-url").textContent = "";
   }
   qrModal.classList.add("show");
 });
 
-qrClose.addEventListener("click", () => {
+document.getElementById("qr-close").addEventListener("click", () => {
   qrModal.classList.remove("show");
 });
-
 qrModal.addEventListener("click", (e) => {
-  if (e.target === qrModal) {
-    qrModal.classList.remove("show");
-  }
+  if (e.target === qrModal) qrModal.classList.remove("show");
 });
 
-// --- Demo mode (add test danmaku periodically for development) ---
-if (import.meta.env.DEV) {
-  const demoMessages = [
-    "wwwwwwww",
-    "草",
-    "すごい！",
-    "ニコニコ",
-    "888888",
-    "ktkr",
-    "弾幕テスト",
-    "NicoTauriX最高！",
-  ];
-  let demoIndex = 0;
+// ── WebSocket ──
+const wsDot = document.getElementById("ws-dot");
 
-  setInterval(() => {
-    const text = demoMessages[demoIndex % demoMessages.length];
-    const colors = [
-      "#FFFFFF",
-      "#FF0000",
-      "#00FF00",
-      "#FFFF00",
-      "#FF69B4",
-      "#00BFFF",
-    ];
-    engine.addDanmaku({
-      text,
-      color: colors[Math.floor(Math.random() * colors.length)],
-      speed: Math.floor(Math.random() * 3) + 2,
-    });
-    demoIndex++;
-  }, 800);
-}
+const wsClient = new DanmakuWsClient("ws://localhost:1422/ws", {
+  onDanmaku: () => {},
+  onControl: (action) => {
+    switch (action.action) {
+      case "set_speed":
+        speedSlider.value = action.value;
+        speedValue.textContent = action.value;
+        break;
+      case "set_color":
+        colorPicker.value = action.value;
+        break;
+      case "toggle":
+        danmakuEnabled = action.enabled;
+        updateDanmakuPill();
+        break;
+    }
+  },
+  onOpen: () => { wsDot.classList.add("connected"); },
+  onClose: () => { wsDot.classList.remove("connected"); },
+  onError: () => { wsDot.classList.remove("connected"); },
+});
+
+wsClient.connect();
