@@ -1,26 +1,27 @@
 /**
  * Danmaku Injection Script for X.com WebView
  *
- * This script is injected into the X.com WebView by Tauri.
- * It hooks into the Quote Repost flow and triggers danmaku
- * for quoted tweet text.
+ * Injected into the X.com WebView by Tauri.
+ * Detects Quote Reposts and shows the quoting user's comment as danmaku.
+ *
+ * Quote Post detection:
+ *   A tweet article with 2+ [data-testid="tweetText"] elements is a quote repost.
+ *   The first tweetText is the quoting comment → danmaku.
+ *   The second is the original quoted tweet → ignored.
  */
 (function () {
   "use strict";
 
-  // Prevent double injection
   if (window.__nicotaurix_injected) return;
   window.__nicotaurix_injected = true;
 
-  // --- Canvas overlay for danmaku ---
+  // --- Canvas overlay ---
   const canvas = document.createElement("canvas");
   canvas.id = "nicotaurix-danmaku-canvas";
   canvas.style.cssText = `
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     pointer-events: none;
     z-index: 999999;
   `;
@@ -33,7 +34,7 @@
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
 
-  // --- Inline DanmakuEngine (same logic as danmaku-engine.js) ---
+  // --- Danmaku engine ---
   const ctx = canvas.getContext("2d");
   const items = [];
   let enabled = true;
@@ -88,7 +89,7 @@
       alive: true,
     });
 
-    // Send to WebSocket for PWA mirror
+    // Broadcast to WebSocket for mobile mirror
     if (window.__nicotaurix_ws && window.__nicotaurix_ws.readyState === 1) {
       window.__nicotaurix_ws.send(
         JSON.stringify({
@@ -102,6 +103,7 @@
     }
   }
 
+  // --- Animation loop ---
   let lastTime = performance.now();
   function animationLoop(now) {
     const delta = now - lastTime;
@@ -113,12 +115,10 @@
         item.x -= item.speed * factor;
         if (item.x + item.width < 0) item.alive = false;
       }
-      // Remove dead items
       for (let i = items.length - 1; i >= 0; i--) {
         if (!items[i].alive) items.splice(i, 1);
       }
 
-      // Render
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       for (const item of items) {
         ctx.font = `bold ${item.fontSize}px "Hiragino Sans", "MS Gothic", sans-serif`;
@@ -134,29 +134,57 @@
   }
   requestAnimationFrame(animationLoop);
 
-  // --- Hook into X.com Quote Repost ---
-  // Monitor DOM for new tweets appearing (quote repost submissions)
+  // --- Quote Repost detection ---
+  // Track processed articles to avoid duplicates
+  const processed = new WeakSet();
+
+  /**
+   * Check if a tweet article is a Quote Repost and extract the comment.
+   * Returns the quote comment text, or null if not a quote repost.
+   */
+  function extractQuoteComment(article) {
+    const tweetTexts = article.querySelectorAll('[data-testid="tweetText"]');
+    if (tweetTexts.length < 2) return null;
+
+    // First tweetText = quoting user's comment
+    // Second tweetText = original quoted tweet (inside embedded card)
+    const comment = tweetTexts[0].textContent?.trim();
+    return comment && comment.length > 0 ? comment : null;
+  }
+
+  function processNode(node) {
+    if (node.nodeType !== 1) return;
+
+    // Find tweet articles
+    const articles = [];
+    if (node.matches?.('article[data-testid="tweet"]')) {
+      articles.push(node);
+    }
+    if (node.querySelectorAll) {
+      articles.push(
+        ...node.querySelectorAll('article[data-testid="tweet"]')
+      );
+    }
+
+    for (const article of articles) {
+      if (processed.has(article)) continue;
+      processed.add(article);
+
+      const comment = extractQuoteComment(article);
+      if (comment) {
+        addDanmaku(comment);
+      }
+    }
+  }
+
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       for (const node of mutation.addedNodes) {
-        if (node.nodeType !== 1) continue;
-
-        // Look for tweet text elements in timeline
-        const tweetTexts = node.querySelectorAll
-          ? node.querySelectorAll('[data-testid="tweetText"]')
-          : [];
-
-        for (const tweetEl of tweetTexts) {
-          const text = tweetEl.textContent?.trim();
-          if (text && text.length > 0) {
-            addDanmaku(text);
-          }
-        }
+        processNode(node);
       }
     }
   });
 
-  // Start observing once the body is ready
   function startObserving() {
     const timeline = document.querySelector("main") || document.body;
     observer.observe(timeline, { childList: true, subtree: true });
@@ -168,7 +196,7 @@
     startObserving();
   }
 
-  // --- WebSocket connection to Tauri backend ---
+  // --- WebSocket connection ---
   function connectWs() {
     try {
       const ws = new WebSocket("ws://localhost:1422/ws");
@@ -203,17 +231,14 @@
 
   connectWs();
 
-  // Expose API for testing/debugging
+  // --- Debug API ---
   window.__nicotaurix = {
     addDanmaku,
     getItems: () => [...items],
-    setEnabled: (v) => {
-      enabled = v;
-    },
-    setSpeed: (v) => {
-      baseSpeed = Math.max(1, Math.min(5, v));
-    },
+    setEnabled: (v) => { enabled = v; },
+    setSpeed: (v) => { baseSpeed = Math.max(1, Math.min(5, v)); },
+    extractQuoteComment,
   };
 
-  console.log("[NicoTauriX] Danmaku injection active!");
+  console.log("[NicoTauriX] Danmaku injection active (Quote Post mode)");
 })();

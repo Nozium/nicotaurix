@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#000" />
     <title>NicoTauriX</title>
     <link rel="icon" href="/favicon.ico" />
@@ -24,15 +24,22 @@
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         background: var(--bg);
         color: var(--text);
-        height: var(--bar-h);
         overflow: hidden;
         -webkit-user-select: none;
         user-select: none;
       }
 
-      /* ── Navigation Bar ── */
+      /* ── Desktop: body is toolbar height only ── */
+      body.desktop { height: var(--bar-h); }
+
+      /* ── Mobile: full screen ── */
+      body.mobile { height: 100vh; height: 100dvh; }
+
+      /* ══════════════════════════════════════════
+         Desktop Navigation Bar
+         ══════════════════════════════════════════ */
       #navbar {
-        display: flex;
+        display: none;
         align-items: center;
         height: var(--bar-h);
         padding: 0 6px;
@@ -40,8 +47,8 @@
         background: var(--bg);
         border-bottom: 1px solid var(--border);
       }
+      body.desktop #navbar { display: flex; }
 
-      /* Nav buttons */
       .nav-btn {
         width: 28px; height: 28px;
         display: flex; align-items: center; justify-content: center;
@@ -53,7 +60,6 @@
       .nav-btn:hover { background: var(--surface); color: var(--text); }
       .nav-btn:active { transform: scale(0.92); }
 
-      /* URL bar */
       #url-bar {
         flex: 1;
         height: 28px;
@@ -74,7 +80,6 @@
         user-select: text;
       }
 
-      /* Danmaku indicator (pill) */
       #danmaku-pill {
         display: flex; align-items: center; gap: 4px;
         height: 28px; padding: 0 10px;
@@ -94,15 +99,14 @@
         border: 1px solid var(--border);
       }
 
-      /* WS status dot */
-      #ws-dot {
+      .ws-dot {
         width: 6px; height: 6px;
         border-radius: 50%;
         background: #f87171;
         flex-shrink: 0;
         transition: background 0.3s;
       }
-      #ws-dot.connected { background: #4ade80; }
+      .ws-dot.connected { background: #4ade80; }
 
       /* ── Settings Panel (gear popup) ── */
       #settings-overlay {
@@ -218,9 +222,159 @@
         font-size: 13px;
         cursor: pointer;
       }
+
+      /* ══════════════════════════════════════════
+         Mobile: Danmaku Viewer
+         ══════════════════════════════════════════ */
+      #mobile-app {
+        display: none;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        position: relative;
+      }
+      body.mobile #mobile-app { display: block; }
+
+      /* Mobile danmaku canvas */
+      #mobile-danmaku-canvas {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: #000;
+      }
+
+      /* Mobile connection overlay */
+      #mobile-connect {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.92);
+        z-index: 10;
+        padding: 24px;
+        transition: opacity 0.3s;
+      }
+      #mobile-connect.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .mobile-logo {
+        font-size: 28px;
+        font-weight: 800;
+        color: var(--accent);
+        margin-bottom: 8px;
+        letter-spacing: -0.5px;
+      }
+      .mobile-subtitle {
+        font-size: 13px;
+        color: var(--text-dim);
+        margin-bottom: 32px;
+      }
+
+      .mobile-input-group {
+        width: 100%;
+        max-width: 340px;
+        margin-bottom: 16px;
+      }
+      .mobile-input-label {
+        font-size: 11px;
+        color: var(--text-dim);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+      }
+      #mobile-ws-url {
+        width: 100%;
+        height: 44px;
+        padding: 0 16px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface);
+        color: var(--text);
+        font-size: 15px;
+        outline: none;
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      #mobile-ws-url:focus {
+        border-color: var(--accent);
+      }
+      #mobile-ws-url::placeholder {
+        color: var(--text-dim);
+      }
+
+      #mobile-connect-btn {
+        width: 100%;
+        max-width: 340px;
+        height: 48px;
+        border: none;
+        border-radius: 12px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      #mobile-connect-btn:hover { background: var(--accent-hover); }
+      #mobile-connect-btn:active { transform: scale(0.97); }
+      #mobile-connect-btn:disabled {
+        background: var(--surface);
+        color: var(--text-dim);
+        cursor: not-allowed;
+      }
+
+      #mobile-status {
+        margin-top: 16px;
+        font-size: 13px;
+        color: var(--text-dim);
+        min-height: 20px;
+      }
+
+      /* Mobile floating controls (shown when connected) */
+      #mobile-controls {
+        position: absolute;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: none;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 16px;
+        background: rgba(24, 24, 24, 0.85);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        z-index: 20;
+      }
+      #mobile-controls.show { display: flex; }
+
+      .mobile-ctrl-btn {
+        width: 36px; height: 36px;
+        display: flex; align-items: center; justify-content: center;
+        background: none; border: none;
+        color: var(--text);
+        font-size: 18px;
+        cursor: pointer;
+        border-radius: 50%;
+        transition: background 0.15s;
+      }
+      .mobile-ctrl-btn:hover { background: rgba(255,255,255,0.1); }
+
+      #mobile-ws-indicator {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 11px;
+        color: var(--text-dim);
+      }
     </style>
   </head>
   <body>
+    <!-- ══════ Desktop UI ══════ -->
     <nav id="navbar">
       <button class="nav-btn" id="btn-back" title="戻る">&#9664;</button>
       <button class="nav-btn" id="btn-forward" title="進む">&#9654;</button>
@@ -232,12 +386,12 @@
         <span id="danmaku-label">弾幕</span>
       </div>
 
-      <span id="ws-dot" title="WebSocket"></span>
+      <span class="ws-dot" id="ws-dot" title="WebSocket"></span>
 
       <button class="nav-btn" id="btn-settings" title="設定">&#9881;</button>
     </nav>
 
-    <!-- Settings dropdown -->
+    <!-- Desktop: Settings dropdown -->
     <div id="settings-overlay">
       <div id="settings-panel">
         <div class="settings-title">弾幕設定</div>
@@ -266,13 +420,43 @@
       </div>
     </div>
 
-    <!-- QR Modal -->
+    <!-- Desktop: QR Modal -->
     <div id="qr-modal">
       <div id="qr-container">
         <div id="qr-svg"></div>
         <div id="qr-url"></div>
       </div>
       <button id="qr-close">閉じる</button>
+    </div>
+
+    <!-- ══════ Mobile UI ══════ -->
+    <div id="mobile-app">
+      <canvas id="mobile-danmaku-canvas"></canvas>
+
+      <!-- Connection screen -->
+      <div id="mobile-connect">
+        <div class="mobile-logo">NicoTauriX</div>
+        <div class="mobile-subtitle">弾幕ビューア</div>
+
+        <div class="mobile-input-group">
+          <div class="mobile-input-label">WebSocket URL</div>
+          <input type="text" id="mobile-ws-url" placeholder="ws://192.168.x.x:1422/ws" spellcheck="false" autocomplete="off" />
+        </div>
+
+        <button id="mobile-connect-btn">接続</button>
+
+        <div id="mobile-status"></div>
+      </div>
+
+      <!-- Floating controls (shown when connected) -->
+      <div id="mobile-controls">
+        <div id="mobile-ws-indicator">
+          <span class="ws-dot" id="mobile-ws-dot"></span>
+          <span id="mobile-ws-label">接続中</span>
+        </div>
+        <button class="mobile-ctrl-btn" id="mobile-btn-reconnect" title="再接続">&#8635;</button>
+        <button class="mobile-ctrl-btn" id="mobile-btn-disconnect" title="切断">&#10005;</button>
+      </div>
     </div>
 
     <script type="module" src="/src/main.js"></script>
