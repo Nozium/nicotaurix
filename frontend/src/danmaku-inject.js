@@ -2,12 +2,13 @@
  * Danmaku Injection Script for X.com WebView
  *
  * Injected into the X.com WebView by Tauri.
- * Detects Quote Reposts and shows the quoting user's comment as danmaku.
+ * Two triggers for danmaku:
  *
- * Quote Post detection:
- *   A tweet article with 2+ [data-testid="tweetText"] elements is a quote repost.
- *   The first tweetText is the quoting comment → danmaku.
- *   The second is the original quoted tweet → ignored.
+ * 1. Quote Post submission: when the user clicks "Post" on a quote repost
+ *    compose dialog, their comment text flies across the screen as danmaku.
+ *
+ * 2. Timeline detection: when scrolling the timeline and a quote repost
+ *    (article with 2+ tweetText) appears, its comment becomes danmaku.
  */
 (function () {
   "use strict";
@@ -134,20 +135,103 @@
   }
   requestAnimationFrame(animationLoop);
 
-  // --- Quote Repost detection ---
-  // Track processed articles to avoid duplicates
+  // ═══════════════════════════════════════════════════════
+  //  Trigger 1: Quote Post submission detection
+  //  User clicks "Post" in the quote compose dialog
+  // ═══════════════════════════════════════════════════════
+
+  /**
+   * Check if a compose dialog contains a quoted tweet (= it's a quote repost).
+   * X.com embeds the original tweet inside the compose modal when quoting.
+   */
+  function isQuoteComposeDialog(dialog) {
+    // Quote compose dialogs contain the original tweet as an embedded card.
+    // Look for: tweetText inside a non-editable area (the quoted tweet preview),
+    // or a card wrapper, or multiple tweetText elements.
+    const tweetTexts = dialog.querySelectorAll('[data-testid="tweetText"]');
+    if (tweetTexts.length > 0) return true;
+
+    // Fallback: look for card-like embedded content
+    if (dialog.querySelector('[data-testid="card.wrapper"]')) return true;
+    if (dialog.querySelector('[data-testid="quoteTweet"]')) return true;
+
+    return false;
+  }
+
+  /**
+   * Extract the user's comment text from the compose dialog's text area.
+   */
+  function getComposeText(dialog) {
+    // Primary: data-testid="tweetTextarea_0"
+    const textarea = dialog.querySelector('[data-testid="tweetTextarea_0"]');
+    if (textarea) {
+      const text = textarea.textContent?.trim();
+      if (text) return text;
+    }
+
+    // Fallback: role="textbox" within the dialog
+    const textbox = dialog.querySelector('[role="textbox"]');
+    if (textbox) {
+      const text = textbox.textContent?.trim();
+      if (text) return text;
+    }
+
+    return null;
+  }
+
+  // Listen for clicks on the Post button (capture phase to fire before X.com)
+  document.addEventListener("click", (e) => {
+    // Check if the clicked element is (or is inside) the tweet/post button
+    const tweetBtn = e.target.closest('[data-testid="tweetButton"]');
+    if (!tweetBtn) return;
+
+    // Find the containing dialog
+    const dialog = tweetBtn.closest('[role="dialog"]') ||
+                   tweetBtn.closest('[role="alertdialog"]');
+
+    if (!dialog) {
+      // Might be inline compose (not in a dialog). Check parent compose area.
+      // For inline quote repost, look for a compose container
+      const composeArea = tweetBtn.closest('[data-testid="inline_reply_offscreen"]') ||
+                          tweetBtn.parentElement?.closest('div');
+      if (!composeArea) return;
+
+      // Check if there's a quoted tweet indicator nearby
+      if (!isQuoteComposeDialog(composeArea)) return;
+
+      const text = getComposeText(composeArea);
+      if (text) {
+        console.log("[NicoTauriX] Quote post submitted (inline):", text);
+        addDanmaku(text);
+      }
+      return;
+    }
+
+    // Check if this dialog is a quote repost compose (not a regular tweet)
+    if (!isQuoteComposeDialog(dialog)) return;
+
+    // Grab the user's comment text before X.com clears it
+    const text = getComposeText(dialog);
+    if (text) {
+      console.log("[NicoTauriX] Quote post submitted:", text);
+      addDanmaku(text);
+    }
+  }, true); // capture phase
+
+  // ═══════════════════════════════════════════════════════
+  //  Trigger 2: Timeline quote repost detection
+  //  When scrolling, quote reposts appear as danmaku
+  // ═══════════════════════════════════════════════════════
+
   const processed = new WeakSet();
 
   /**
    * Check if a tweet article is a Quote Repost and extract the comment.
-   * Returns the quote comment text, or null if not a quote repost.
    */
   function extractQuoteComment(article) {
     const tweetTexts = article.querySelectorAll('[data-testid="tweetText"]');
     if (tweetTexts.length < 2) return null;
 
-    // First tweetText = quoting user's comment
-    // Second tweetText = original quoted tweet (inside embedded card)
     const comment = tweetTexts[0].textContent?.trim();
     return comment && comment.length > 0 ? comment : null;
   }
@@ -155,7 +239,6 @@
   function processNode(node) {
     if (node.nodeType !== 1) return;
 
-    // Find tweet articles
     const articles = [];
     if (node.matches?.('article[data-testid="tweet"]')) {
       articles.push(node);
@@ -238,6 +321,8 @@
     setEnabled: (v) => { enabled = v; },
     setSpeed: (v) => { baseSpeed = Math.max(1, Math.min(5, v)); },
     extractQuoteComment,
+    isQuoteComposeDialog,
+    getComposeText,
   };
 
   console.log("[NicoTauriX] Danmaku injection active (Quote Post mode)");
